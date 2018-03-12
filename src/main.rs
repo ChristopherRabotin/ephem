@@ -11,7 +11,7 @@ fn two_body_dynamics(_t: f64, state: &Vector6<f64>) -> Vector6<f64> {
 
 fn main() {
     use std::f64;
-    use nyx::propagators::{CashKarp54, Options, Propagator};
+    use nyx::propagators::{Options, Propagator, Verner65};
     // Initial spacecraft state
     let mut state =
         Vector6::from_row_slice(&[-2436.45, -2436.45, 6891.037, 5.088611, -5.088611, 0.0]);
@@ -27,13 +27,13 @@ fn main() {
 
     let mut cur_t = 0.0;
     let mut iterations = 0;
-    let mut prop = Propagator::new::<CashKarp54>(&Options::with_adaptive_step(0.1, 30.0, 1e-2));
+    let mut prop = Propagator::new::<Verner65>(&Options::with_adaptive_step(0.1, 30.0, 1e-2));
     loop {
         let (t, state_t) = prop.derive(cur_t, &state, two_body_dynamics);
         iterations += 1;
         cur_t = t;
         state = state_t;
-        if cur_t >= 3600.0 * 24.0 {
+        if cur_t >= 3600.0 * 24.0 * 100.0 {
             let details = prop.clone().latest_details();
             if details.error > 1e-2 {
                 assert!(
