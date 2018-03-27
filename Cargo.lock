@@ -59,7 +59,6 @@ name = "mybin"
 version = "0.1.0"
 dependencies = [
  "nalgebra 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "nyx 0.0.1",
 ]
 
 [[package]]
@@ -103,13 +102,6 @@ dependencies = [
 name = "num-traits"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "nyx"
-version = "0.0.1"
-dependencies = [
- "nalgebra 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
 
 [[package]]
 name = "rand"

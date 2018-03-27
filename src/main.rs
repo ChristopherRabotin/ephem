@@ -1,51 +1,27 @@
 extern crate nalgebra;
-extern crate nyx;
-use nalgebra::{U1, U3, Vector6};
-
-fn two_body_dynamics(_t: f64, state: &Vector6<f64>) -> Vector6<f64> {
-    let radius = state.fixed_slice::<U3, U1>(0, 0);
-    let velocity = state.fixed_slice::<U3, U1>(3, 0);
-    let body_acceleration = (-398_600.4 / radius.norm().powi(3)) * radius;
-    Vector6::from_iterator(velocity.iter().chain(body_acceleration.iter()).cloned())
-}
+//extern crate nyx;
+use nalgebra::{Point3, Vector3, Vector6};
+use nalgebra::geometry::{Isometry3, IsometryMatrix3, Quaternion, UnitQuaternion};
+use nalgebra::Real;
 
 fn main() {
-    use std::f64;
-    use nyx::propagators::{Options, Propagator, Verner65};
-    // Initial spacecraft state
-    let mut state =
-        Vector6::from_row_slice(&[-2436.45, -2436.45, 6891.037, 5.088611, -5.088611, 0.0]);
-    // Final expected spaceraft state
-    let rslt = Vector6::from_row_slice(&[
-        -5971.195422075937,
-        3945.5823545380795,
-        2864.5313049901433,
-        0.0490037916139182,
-        -4.185031511302435,
-        5.84898521402028,
-    ]);
-
-    let mut cur_t = 0.0;
-    let mut iterations = 0;
-    let mut prop = Propagator::new::<Verner65>(&Options::with_adaptive_step(0.1, 30.0, 1e-2));
-    loop {
-        let (t, state_t) = prop.derive(cur_t, &state, two_body_dynamics);
-        iterations += 1;
-        cur_t = t;
-        state = state_t;
-        if cur_t >= 3600.0 * 24.0 * 100.0 {
-            let details = prop.clone().latest_details();
-            if details.error > 1e-2 {
-                assert!(
-                             details.step - 1e-1 < f64::EPSILON,
-                             "step size should be at its minimum because error is higher than tolerance: {:?}",
-                             details
-                         );
-            }
-            println!("{:?}", prop.latest_details());
-            assert_eq!(state, rslt, "geo prop failed for");
-            assert_eq!(iterations, 2880, "wrong number of iterations");
-            break;
-        }
-    }
+    /*let eph = nyx::ephemeris::bsp::from_path("de436.bsp");
+    // Don't lose track of the goal here. It isn't to get the positions and velocities of the planets
+    // but specifically to transform from one frame to another.
+    let earth_now = eph.position(nyx::bodies::Earth, some_time);
+    eph.quaternion*/
+    let o = Point3::new(0.0, 0.0, 0.0);
+    let op = Point3::new(1.0, 1.0, 0.0);
+    let opp = Point3::new(2.0, 2.0, 0.0);
+    let p = Point3::new(2.0, 1.0, 0.0);
+    let p_op = Point3::new(1.0, 0.0, 0.0);
+    let p_opp = Point3::new(0.0, -1.0, 0.0);
+    let op_vec = o - op;
+    let opp_vec = o - opp;
+    let iso_o2op = Isometry3::new(op_vec, nalgebra::zero());
+    let iso_o2opp = Isometry3::new(opp_vec, nalgebra::zero());
+    let iso_direct = Isometry3::new(op - opp, nalgebra::zero());
+    println!("op_vec: {:}", iso_o2op * p);
+    println!("opp_vec: {:}", iso_o2opp * p);
+    println!("direct: {:}", iso_direct * (iso_o2op * p));
 }

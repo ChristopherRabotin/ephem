@@ -5,4 +5,4 @@ authors = ["Christopher Rabotin <christopher.rabotin@gmail.com>"]
 
 [dependencies]
 nalgebra = "0.14.0"
-nyx = { path = "../nyx" }
+#nyx = { path = "../nyx" }
