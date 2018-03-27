@@ -4,5 +4,4 @@ version = "0.1.0"
 authors = ["Christopher Rabotin <christopher.rabotin@gmail.com>"]
 
 [dependencies]
-nalgebra = "0.14.0"
-#nyx = { path = "../nyx" }
+nom = "4.0.0-beta2"
