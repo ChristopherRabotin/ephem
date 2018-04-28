@@ -13,10 +13,14 @@ use std::str::FromStr;
 
 named!(consume_until_null, take_until_and_consume!("\0"));
 // We parse any expr surrounded by parens, ignoring all whitespaces around those
-named!(parens<u8>, ws!(delimited!(tag!("("), factor, tag!(")"))));
+named!(parens<u8>, ws!(delimited!(tag!("("), naif_id, tag!(")"))));
+// named!(
+//     naif_id<u8>,
+//     alt!(map_res!(map_res!(ws!(digit), str::from_utf8), FromStr::from_str) | parens)
+// );
 named!(
-    factor<u8>,
-    alt!(map_res!(map_res!(ws!(digit), str::from_utf8), FromStr::from_str) | parens)
+    naif_id<u8>,
+    map_res!(map_res!(ws!(digit), str::from_utf8), FromStr::from_str)
 );
 named!(take_hdr, take_until_and_consume!("DAF/SPK"));
 named!(
@@ -25,13 +29,18 @@ named!(
 );
 named!(seek_krnl_date, take_until_and_consume!("Integrated "));
 named!(seek_bodies, take_until_and_consume!("Bodies included:\0\0"));
-// named!(body_name, )
+named!(body_name, ws!(take_until!("(")));
+named!(
+    naif_id_str,
+    ws!(delimited!(tag!("("), take_until!("("), tag!(")")))
+);
+//named!(body_info, tuple!(body_name, naif_id));
 
 #[derive(Debug, PartialEq)]
 struct SPK<'a> {
     name: &'a [u8],
     date: &'a [u8],
-    test: &'a [u8],
+    test: (&'a [u8], &'a [u8]),
 }
 
 #[derive(Debug, PartialEq)]
@@ -48,7 +57,7 @@ named!(parser<&[u8],SPK>,
     seek_krnl_date >>
     date: consume_until_null >> // get the date time of file
     seek_bodies >>
-    test : ws!(take_until!("(")) >>
+    test : tuple!(body_name, naif_id_str) >>
     (SPK{name: dn, date: date, test: test})
   )
 );
@@ -69,7 +78,8 @@ fn main() {
             let spk = spk_info.1;
             println!("{:?}", str::from_utf8(spk.name).unwrap());
             println!("{:?}", str::from_utf8(spk.date).unwrap());
-            println!("{:?}", str::from_utf8(spk.test).unwrap())
+            // println!("{:?}", str::from_utf8(spk.test.0).unwrap());
+            // println!("{:?}", spk.test.1);
         }
         Err(err) => panic!("oh no: {:?}", err),
     }
