@@ -35,6 +35,7 @@ named!(
 named!(seek_start_date, take_until_and_consume!("to"));
 named!(seek_bodies, take_until_and_consume!("Bodies included:\0\0"));
 named!(til_next_null, take_until_and_consume!("\0"));
+named!(til_next_dnull, take_until_and_consume!("\0\0"));
 named!(til_next_open_parens, ws!(take_until_and_consume!("(")));
 named!(til_next_close_parens, ws!(take_until_and_consume!(")")));
 named!(
@@ -54,8 +55,20 @@ struct SPK<'a> {
 #[derive(Debug, PartialEq)]
 struct Body<'a> {
     name: &'a [u8],
-    naif_id: u8,
+    naif_id: &'a [u8],
 }
+
+named!(parse_all_body_hdr<&[u8],(Vec<Body>, &[u8])>,
+    many_till!(parse_body_hdr, tag!("\0\0"))
+);
+
+named!(parse_body_hdr<&[u8],Body>,
+  do_parse!(    // the parser takes a byte array as input, and returns an A struct
+    name: til_next_open_parens >>
+    naif_id : til_next_close_parens >>
+    (Body{name:name, naif_id: naif_id})
+  )
+);
 
 named!(parse_meta<&[u8],SPK>,
   do_parse!(    // the parser takes a byte array as input, and returns an A struct
@@ -90,8 +103,10 @@ fn main() {
             println!("{:?}", str::from_utf8(spk.date).unwrap());
             println!("{:?}", str::from_utf8(spk.start_date).unwrap());
             println!("{:?}", str::from_utf8(spk.end_date).unwrap());
-            // println!("{:?}", str::from_utf8(spk.test.0).unwrap());
-            // println!("{:?}", spk.test.1);
+            match parse_all_body_hdr(&buffer) {
+                Ok(body_hdrs) => println!("{:?}", body_hdrs.1),
+                Err(_) => panic!("failed"),
+            }
         }
         Err(err) => panic!("oh no: {}"),
     }
