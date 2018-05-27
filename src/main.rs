@@ -46,16 +46,16 @@ named!(
 
 #[derive(Debug, PartialEq)]
 struct SPK<'a> {
-    name: &'a [u8],
-    date: &'a [u8],
-    start_date: &'a [u8],
-    end_date: &'a [u8],
+    name: &'a str,
+    date: &'a str,
+    start_date: &'a str,
+    end_date: &'a str,
 }
 
 #[derive(Debug, PartialEq)]
 struct Body<'a> {
-    name: &'a [u8],
-    naif_id: &'a [u8],
+    name: &'a str,
+    naif_id: i16, // Some NAIF ID may be negative, esp. for spacecraft
 }
 
 named!(parse_all_body_hdr<&[u8],(Vec<Body>, &[u8])>,
@@ -64,9 +64,11 @@ named!(parse_all_body_hdr<&[u8],(Vec<Body>, &[u8])>,
 
 named!(parse_body_hdr<&[u8],Body>,
   do_parse!(    // the parser takes a byte array as input, and returns an A struct
+    many0!(tag!("\0")) >> // Remove any leading nulls
     name: til_next_open_parens >>
     naif_id : til_next_close_parens >>
-    (Body{name:name, naif_id: naif_id})
+    (Body{name: str::from_utf8(name).unwrap().trim(),
+        naif_id: str::from_utf8(naif_id).unwrap().parse::<i16>().unwrap()})
   )
 );
 
@@ -81,30 +83,21 @@ named!(parse_meta<&[u8],SPK>,
     start_date: seek_start_date >>
     end_date: ws!(til_next_null) >>
     seek_bodies >> // Advance buffer until the body header for the next parser
-    (SPK{name: dn, date: date, start_date: start_date, end_date: end_date})
+    (SPK{name: str::from_utf8(dn).unwrap(), date: str::from_utf8(date).unwrap(),
+        start_date: str::from_utf8(start_date).unwrap(),
+        end_date: str::from_utf8(end_date).unwrap()})
   )
 );
 
 fn main() {
     let mut f = File::open("data/de436.bsp").expect("open");
     let mut buffer = vec![0; 0];
-    // read the whole file
     f.read_to_end(&mut buffer).expect("to end");
-    //println!("{:?}", buffer);
-    //let pt = hdr(take7(&buffer).expect("wut?").1).expect("does not start with DAF/SPK");
-    //let pt = take_hdr(&buffer).expect("not an SPK file");
-    //println!("{:?}", pt.0);
-    //let pt = seek_krnl_name(pt.0).expect("oops");
-    //println!("{:?}", pt.0);
     match parse_meta(&buffer) {
         Ok(spk_info) => {
-            let spk = spk_info.1;
-            println!("{:?}", str::from_utf8(spk.name).unwrap());
-            println!("{:?}", str::from_utf8(spk.date).unwrap());
-            println!("{:?}", str::from_utf8(spk.start_date).unwrap());
-            println!("{:?}", str::from_utf8(spk.end_date).unwrap());
-            match parse_all_body_hdr(&buffer) {
-                Ok(body_hdrs) => println!("{:?}", body_hdrs.1),
+            println!("{:?}", spk_info.1);
+            match parse_all_body_hdr(spk_info.0) {
+                Ok(body_hdrs) => println!("{:?}", (body_hdrs.1).0),
                 Err(_) => panic!("failed"),
             }
         }
