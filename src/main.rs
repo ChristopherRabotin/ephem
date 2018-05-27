@@ -58,6 +58,25 @@ struct Body<'a> {
     naif_id: i16, // Some NAIF ID may be negative, esp. for spacecraft
 }
 
+#[derive(Debug)]
+struct GM<'a> {
+    planet_id: &'a str,
+    gm: f64,
+}
+
+named!(seek_to_gms<&[u8], &[u8]>,
+    take_until_and_consume!("Sun/GM(I)")
+);
+
+named!(parse_each_gm<&[u8], &[u8]>,
+    do_parse!(
+        many0!(tag!("Sun/GM(I)")) >>
+        take_until_and_consume!("GM") >>
+        fullline: til_next_null >>
+        (fullline)
+    )
+);
+
 named!(parse_all_body_hdr<&[u8],(Vec<Body>, &[u8])>,
     many_till!(parse_body_hdr, tag!("\0\0"))
 );
@@ -97,7 +116,47 @@ fn main() {
         Ok(spk_info) => {
             println!("{:?}", spk_info.1);
             match parse_all_body_hdr(spk_info.0) {
-                Ok(body_hdrs) => println!("{:?}", (body_hdrs.1).0),
+                Ok(body_hdrs) => {
+                    println!("{:?}", (body_hdrs.1).0);
+                    let mut buf = seek_to_gms(body_hdrs.0).unwrap().0;
+                    let mut gms = Vec::with_capacity(10);
+                    loop {
+                        match parse_each_gm(buf) {
+                            Ok(one) => {
+                                let mut p_id = "";
+                                let mut mu = -1.0;
+                                for (ino, item) in str::from_utf8(one.1)
+                                    .unwrap()
+                                    .split_whitespace()
+                                    .enumerate()
+                                {
+                                    match ino {
+                                        0 => p_id = item,
+                                        3 => {
+                                            mu = item.replace("D", "E").parse::<f64>().unwrap();
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                if mu > -1.0 {
+                                    let read_gm = GM {
+                                        planet_id: p_id,
+                                        gm: mu,
+                                    };
+                                    println!("{:?}", read_gm);
+                                    gms.push(read_gm);
+                                } else {
+                                    break;
+                                }
+                                buf = one.0;
+                            }
+                            Err(_) => {
+                                println!("done");
+                                break;
+                            }
+                        }
+                    }
+                }
                 Err(_) => panic!("failed"),
             }
         }
