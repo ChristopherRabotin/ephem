@@ -28,8 +28,15 @@ named!(
     take_until_and_consume!("JPL planetary and lunar ephmeris ")
 );
 named!(seek_krnl_date, take_until_and_consume!("Integrated "));
+named!(
+    seek_span,
+    take_until_and_consume!("span covered by ephemeris:\0\0")
+);
+named!(seek_start_date, take_until_and_consume!("to"));
 named!(seek_bodies, take_until_and_consume!("Bodies included:\0\0"));
-named!(body_name, ws!(take_until!("(")));
+named!(til_next_null, take_until_and_consume!("\0"));
+named!(til_next_open_parens, ws!(take_until_and_consume!("(")));
+named!(til_next_close_parens, ws!(take_until_and_consume!(")")));
 named!(
     naif_id_str,
     ws!(delimited!(tag!("("), take_until!("("), tag!(")")))
@@ -40,7 +47,8 @@ named!(
 struct SPK<'a> {
     name: &'a [u8],
     date: &'a [u8],
-    test: (&'a [u8], &'a [u8]),
+    start_date: &'a [u8],
+    end_date: &'a [u8],
 }
 
 #[derive(Debug, PartialEq)]
@@ -49,16 +57,18 @@ struct Body<'a> {
     naif_id: u8,
 }
 
-named!(parser<&[u8],SPK>,
+named!(parse_meta<&[u8],SPK>,
   do_parse!(    // the parser takes a byte array as input, and returns an A struct
     take_hdr >> // check for header
     seek_krnl_name >> // consume until there
     dn: take!(5) >> // get the DE name
     seek_krnl_date >>
     date: consume_until_null >> // get the date time of file
-    seek_bodies >>
-    test : tuple!(body_name, naif_id_str) >>
-    (SPK{name: dn, date: date, test: test})
+    seek_span >>
+    start_date: seek_start_date >>
+    end_date: ws!(til_next_null) >>
+    seek_bodies >> // Advance buffer until the body header for the next parser
+    (SPK{name: dn, date: date, start_date: start_date, end_date: end_date})
   )
 );
 
@@ -73,14 +83,16 @@ fn main() {
     //println!("{:?}", pt.0);
     //let pt = seek_krnl_name(pt.0).expect("oops");
     //println!("{:?}", pt.0);
-    match parser(&buffer) {
+    match parse_meta(&buffer) {
         Ok(spk_info) => {
             let spk = spk_info.1;
             println!("{:?}", str::from_utf8(spk.name).unwrap());
             println!("{:?}", str::from_utf8(spk.date).unwrap());
+            println!("{:?}", str::from_utf8(spk.start_date).unwrap());
+            println!("{:?}", str::from_utf8(spk.end_date).unwrap());
             // println!("{:?}", str::from_utf8(spk.test.0).unwrap());
             // println!("{:?}", spk.test.1);
         }
-        Err(err) => panic!("oh no: {:?}", err),
+        Err(err) => panic!("oh no: {}"),
     }
 }
