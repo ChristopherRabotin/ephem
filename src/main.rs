@@ -82,7 +82,7 @@ named!(parse_meta<&[u8],SPK>,
 );
 
 fn main() {
-    let mut f = File::open("data/de436.bsp").expect("open");
+    let mut f = File::open("../nyx/data/de436s.bsp").expect("open");
     let mut buffer = vec![0; 0];
     f.read_to_end(&mut buffer).expect("to end");
     let mut data: HashMap<i16, Body>;
@@ -177,6 +177,6 @@ fn main() {
                 Err(_) => panic!("failed"),
             }
         }
-        Err(_) => panic!("oh no: {}"),
+        Err(err) => panic!("oh no: {:?}", err),
     }
 }
