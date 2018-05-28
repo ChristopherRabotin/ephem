@@ -12,11 +12,6 @@ named!(
     take_until_and_consume!("JPL planetary and lunar ephmeris ")
 );
 named!(seek_krnl_date, take_until_and_consume!("Integrated "));
-named!(
-    seek_span,
-    take_until_and_consume!("span covered by ephemeris:\0\0")
-);
-named!(seek_start_date, take_until_and_consume!("to"));
 named!(seek_bodies, take_until_and_consume!("Bodies included:\0\0"));
 named!(til_next_null, take_until_and_consume!("\0"));
 named!(til_next_open_parens, ws!(take_until_and_consume!("(")));
@@ -26,8 +21,6 @@ named!(til_next_close_parens, ws!(take_until_and_consume!(")")));
 struct SPK<'a> {
     name: &'a str,
     date: &'a str,
-    start_date: &'a str,
-    end_date: &'a str,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -71,18 +64,14 @@ named!(parse_meta<&[u8],SPK>,
     dn: take!(5) >> // get the DE name
     seek_krnl_date >>
     date: consume_until_null >> // get the date time of file
-    seek_span >>
-    start_date: seek_start_date >>
-    end_date: ws!(til_next_null) >>
     seek_bodies >> // Advance buffer until the body header for the next parser
-    (SPK{name: str::from_utf8(dn).unwrap(), date: str::from_utf8(date).unwrap(),
-        start_date: str::from_utf8(start_date).unwrap(),
-        end_date: str::from_utf8(end_date).unwrap()})
+    (SPK{name: str::from_utf8(dn).unwrap(), date: str::from_utf8(date).unwrap()})
   )
 );
 
 fn main() {
-    let mut f = File::open("../nyx/data/de436s.bsp").expect("open");
+    // let mut f = File::open("../nyx/data/de436s.bsp").expect("open");
+    let mut f = File::open("./data/de436.bsp").expect("open");
     let mut buffer = vec![0; 0];
     f.read_to_end(&mut buffer).expect("to end");
     let mut data: HashMap<i16, Body>;
@@ -98,6 +87,7 @@ fn main() {
                     }
                     println!("{:?}", data);
                     let mut buf = seek_to_gms(body_hdrs.0).unwrap().0;
+                    let mut sun_mu = -1.0f64;
                     loop {
                         match parse_each_gm(buf) {
                             Ok(one) => {
@@ -110,8 +100,28 @@ fn main() {
                                 {
                                     match ino {
                                         0 => p_id = item,
+                                        2 => {
+                                            // In the terrible format of a FORTRAN memory dump,
+                                            // the useful information, although always in column
+                                            // three, actually sometimes has an extra null byte.
+                                            // This breaks the parser. So here we're checking if
+                                            // we're parsing the Earth barycenter or the Moon GM
+                                            // and if so, we'll parse the second column and do the
+                                            // math. So far, I have only seen those rows break.
+                                            if p_id == "M" || p_id == "B" {
+                                                mu = sun_mu
+                                                    / (item.replace("D", "E")
+                                                        .parse::<f64>()
+                                                        .unwrap());
+                                            }
+                                        }
                                         3 => {
-                                            mu = item.replace("D", "E").parse::<f64>().unwrap();
+                                            if p_id != "M" && p_id != "B" {
+                                                mu = item.replace("D", "E").parse::<f64>().unwrap();
+                                                if p_id == "S" {
+                                                    sun_mu = mu;
+                                                }
+                                            }
                                         }
                                         _ => {}
                                     }
@@ -172,7 +182,9 @@ fn main() {
                             }
                         }
                     }
-                    println!("\n{:?}", data);
+                    for body in data.values() {
+                        println!("{:?}", body);
+                    }
                 }
                 Err(_) => panic!("failed"),
             }
