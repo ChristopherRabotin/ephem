@@ -15,12 +15,12 @@ dependencies = [
 name = "mybin"
 version = "0.1.0"
 dependencies = [
- "nom 4.0.0-beta2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nom 4.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "nom"
-version = "4.0.0-beta2"
+version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "memchr 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -29,4 +29,4 @@ dependencies = [
 [metadata]
 "checksum libc 0.2.36 (registry+https://github.com/rust-lang/crates.io-index)" = "1e5d97d6708edaa407429faa671b942dc0f2727222fb6b6539bf1db936e4b121"
 "checksum memchr 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "796fba70e76612589ed2ce7f45282f5af869e0fdd7cc6199fa1aa1f1d591ba9d"
-"checksum nom 4.0.0-beta2 (registry+https://github.com/rust-lang/crates.io-index)" = "2b86dd5a5739ba63d5e7e1ec90806c4c13a5fb1ea8b8855e2e3796d821627301"
+"checksum nom 4.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "898696750eb5c3ce5eb5afbfbe46e7f7c4e1936e19d3e97be4b7937da7b6d114"

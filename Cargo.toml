@@ -4,4 +4,4 @@ version = "0.1.0"
 authors = ["Christopher Rabotin <christopher.rabotin@gmail.com>"]
 
 [dependencies]
-nom = "4.0.0-beta2"
+nom = "4.0.0"

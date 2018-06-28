@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate nom;
-use nom::le_u32;
+use nom::{le_f32, le_u32};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -23,19 +23,23 @@ named!(
     take_until_and_consume!("\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0")
 );
 
-#[derive(Debug, PartialEq)]
-struct Header {
-    file_architecture: String, //[8], // LOCIDW
-    n_double_precision: u32,   // ND
-    n_integers: u32,           // NI
-    internal_name: String,     //[60],    // LOCIFN
-    first_summary_block: u32,  // FWARD
-    last_summary_block: u32,   // BWARD
-    first_free_address: u32,   // FREE
-    numeric_format: String,    //[8];    // LOCFMT
-    // zeros_1: String,           //[603];         // PRENUL
-    integrity_string: String, //[28]; // FTPSTR
-                              // zeros_2: String,           //[297];         // PSTNUL
+// Each summary has a fixed form, reflected here
+struct Summary {
+    begin_second: f64, // initial epoch, as seconds from J2000
+    end_second: f64,   // final epoch, as seconds from J2000
+    target_id: u32,    // target identifier
+    center_id: u32,    // center identifier
+    frame_id: u32,     // frame identifier (we handle 1 - J2000 - only)
+    data_type: u32,    // data type identifier (we handle II or III)
+    start_i: u32,      // index (8 byte blocks) where segment data starts
+    end_i: u32,        // index (8 byte blocks) where segment data ends
+}
+
+struct ElementRecordMetadata {
+    init: f64,   // The start time (in s) of the epoch represented
+    intlen: f64, // The length of the interval represented
+    rsize: f64,  // The size of the record in units of 8 bytes (a double)
+    n: f64,      // The number of records contained here
 }
 
 named!(take8char<&[u8] ,String>,
@@ -59,7 +63,23 @@ named!(take_ftpstr<&[u8] ,String>,
     )
 );
 
-named!(parse_full_header<&[u8], Header>,
+// Structs and their parsers live below (and one after each other)
+
+// The header has a specific structure which stores where data exist.
+#[derive(Debug)]
+struct Header {
+    file_architecture: String, // LOCIDW [8]
+    n_double_precision: u32,   // ND
+    n_integers: u32,           // NI
+    internal_name: String,     // LOCIFN [60]
+    first_summary_block: u32,  // FWARD
+    last_summary_block: u32,   // BWARD
+    first_free_address: u32,   // FREE
+    numeric_format: String,    // LOCFMT [8]
+    integrity_string: String,  // FTPSTR [28]
+}
+
+named!(parse_header<&[u8], Header>,
   do_parse!(
     arch: take8char >>
     nd: le_u32 >>
@@ -82,7 +102,32 @@ named!(parse_full_header<&[u8], Header>,
         last_summary_block: last_sum_blk,
         first_free_address: first_free_addr,
         numeric_format: locfmt,
-        integrity_string: "chksum".to_owned(),
+        integrity_string: "DUMMY".to_owned(),
+    })
+  )
+);
+
+// The comment records are followed by summary records.
+// Blocks of summary records are chained like a linked list with each block
+// having a header section that carries the chain information. These values are
+// integers but they are stored as doubles
+#[derive(Debug)]
+struct SummaryRecordBlockHeader {
+    next_summary_record_blk: f32, // pointer to next SR 1Kb block (1 indexed)
+    prev_summary_record_blk: f32, // pointer to previous SR block (1 indexed)
+    n_summaries: f32,             // number of element summaries here
+}
+
+// Parse summary record block header
+named!(parse_srbh<&[u8], SummaryRecordBlockHeader>,
+  do_parse!(
+    next_summary_record_blk: le_f32 >>
+    prev_summary_record_blk: le_f32 >>
+    n_summaries: le_f32 >>
+    (SummaryRecordBlockHeader{
+        next_summary_record_blk,
+        prev_summary_record_blk,
+        n_summaries,
     })
   )
 );
@@ -148,136 +193,114 @@ named!(parse_meta<&[u8],SPK>,
 );
 
 fn main() {
-    // let mut f = File::open("../nyx/data/de436s.bsp").expect("open");
-    let mut f = File::open("./data/de436.bsp").expect("open");
+    let mut f = File::open("./data/de436s.bsp").expect("open");
+    // let mut f = File::open("./data/de436.bsp").expect("open");
     let mut buffer = vec![0; 0];
     f.read_to_end(&mut buffer).expect("to end");
-    let (mut rem, hdr) = parse_full_header(&buffer).expect("could not read header");
+    let (rem, hdr) = parse_header(&buffer).expect("could not read header");
     println!("{:?}", hdr);
+    // We've got that header, let's parse the comment to get the list of bodies (this might fail)
+    let (rem, _) = seek_bodies(&rem).expect("could not seek until bodies");
+    let (rem, body_hdrs) = parse_all_body_hdr(&rem).expect("could not parse comment with bodies");
 
-    /*match parse_meta(&buffer) {
-        Ok(spk_info) => {
-            println!("{:?}", spk_info.1);
-            match parse_all_body_hdr(spk_info.0) {
-                Ok(body_hdrs) => {
-                    // Let put all this into a HashMap for quick access
-                    for body in &((body_hdrs.1).0) {
-                        data.insert(body.naif_id, body.to_owned());
-                    }
-                    println!("{:?}", data);
-                    let mut buf = seek_to_gms(body_hdrs.0).unwrap().0;
-                    let mut sun_mu = -1.0f64;
-                    loop {
-                        match parse_each_gm(buf) {
-                            Ok(one) => {
-                                let mut p_id = "";
-                                let mut mu = -1.0;
-                                for (ino, item) in str::from_utf8(one.1)
-                                    .unwrap()
-                                    .split_whitespace()
-                                    .enumerate()
-                                {
-                                    match ino {
-                                        0 => p_id = item,
-                                        2 => {
-                                            // In the terrible format of a FORTRAN memory dump,
-                                            // the useful information, although always in column
-                                            // three, actually sometimes has an extra null byte.
-                                            // This breaks the parser. So here we're checking if
-                                            // we're parsing the Earth barycenter or the Moon GM
-                                            // and if so, we'll parse the second column and do the
-                                            // math. So far, I have only seen those rows break.
-                                            if p_id == "M" || p_id == "B" {
-                                                mu = sun_mu
-                                                    / (item
-                                                        .replace("D", "E")
-                                                        .parse::<f64>()
-                                                        .unwrap());
-                                            }
-                                        }
-                                        3 => {
-                                            if p_id != "M" && p_id != "B" {
-                                                mu = item.replace("D", "E").parse::<f64>().unwrap();
-                                                if p_id == "S" {
-                                                    sun_mu = mu;
-                                                }
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                                if mu > -1.0 {
-                                    // If it's an integer, update the appropriate value.
-                                    match p_id.parse::<i16>() {
-                                        Ok(p_id) => {
-                                            let naif_id =
-                                                if p_id < 4 { p_id * 100 + 99 } else { p_id };
-                                            let mut cur_data =
-                                                data.get(&naif_id).unwrap().to_owned();
-                                            cur_data.gm = mu;
-                                            data.insert(naif_id, cur_data.to_owned());
-                                            if p_id < 3 {
-                                                // Venus exists as both "Venus" and "Venus Barycenter"
-                                                let mut cur_data =
-                                                    data.get(&p_id).unwrap().to_owned();
-                                                cur_data.gm = mu;
-                                                data.insert(p_id, cur_data.to_owned());
-                                            }
-                                        }
-                                        Err(_) => {
-                                            // This ID has a name.
-                                            let naif_id = match p_id {
-                                                "S" => {
-                                                    10 // Sun
-                                                }
-                                                "M" => {
-                                                    // Moon
-                                                    301
-                                                }
-                                                "B" => {
-                                                    // Earth barycenter
-                                                    3
-                                                }
-                                                _ => {
-                                                    println!("unknown body `GM{}`", p_id);
-                                                    -1
-                                                }
-                                            };
-                                            if naif_id > -1 {
-                                                let mut cur_data =
-                                                    data.get(&naif_id).unwrap().to_owned();
-                                                cur_data.gm = mu;
-                                                data.insert(naif_id, cur_data.to_owned());
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    break;
-                                }
-                                buf = one.0;
+    // Let put all this into a HashMap for quick access
+    let mut data = HashMap::new();
+    for body in &(body_hdrs.0) {
+        data.insert(body.naif_id, body.to_owned());
+    }
+    let mut buf = seek_to_gms(rem).unwrap().0;
+    let mut sun_mu = -1.0f64;
+    loop {
+        match parse_each_gm(buf) {
+            Ok(one) => {
+                let mut p_id = "";
+                let mut mu = -1.0;
+                for (ino, item) in str::from_utf8(one.1)
+                    .unwrap()
+                    .split_whitespace()
+                    .enumerate()
+                {
+                    match ino {
+                        0 => p_id = item,
+                        2 => {
+                            // In the terrible format of a FORTRAN memory dump,
+                            // the useful information, although always in column
+                            // three, actually sometimes has an extra null byte.
+                            // This breaks the parser. So here we're checking if
+                            // we're parsing the Earth barycenter or the Moon GM
+                            // and if so, we'll parse the second column and do the
+                            // math. So far, I have only seen those rows break.
+                            if p_id == "M" || p_id == "B" {
+                                mu = sun_mu / (item.replace("D", "E").parse::<f64>().unwrap());
                             }
-                            Err(_) => {
-                                println!("done");
-                                break;
+                        }
+                        3 => {
+                            if p_id != "M" && p_id != "B" {
+                                mu = item.replace("D", "E").parse::<f64>().unwrap();
+                                if p_id == "S" {
+                                    sun_mu = mu;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if mu > -1.0 {
+                    // If it's an integer, update the appropriate value.
+                    match p_id.parse::<i16>() {
+                        Ok(p_id) => {
+                            let naif_id = if p_id < 4 { p_id * 100 + 99 } else { p_id };
+                            let mut cur_data = data.get(&naif_id).unwrap().to_owned();
+                            cur_data.gm = mu;
+                            data.insert(naif_id, cur_data.to_owned());
+                            if p_id < 3 {
+                                // Venus exists as both "Venus" and "Venus Barycenter"
+                                let mut cur_data = data.get(&p_id).unwrap().to_owned();
+                                cur_data.gm = mu;
+                                data.insert(p_id, cur_data.to_owned());
+                            }
+                        }
+                        Err(_) => {
+                            // This ID has a name.
+                            let naif_id = match p_id {
+                                "S" => {
+                                    10 // Sun
+                                }
+                                "M" => {
+                                    // Moon
+                                    301
+                                }
+                                "B" => {
+                                    // Earth barycenter
+                                    3
+                                }
+                                _ => {
+                                    println!("unknown body `GM{}`", p_id);
+                                    -1
+                                }
+                            };
+                            if naif_id > -1 {
+                                let mut cur_data = data.get(&naif_id).unwrap().to_owned();
+                                cur_data.gm = mu;
+                                data.insert(naif_id, cur_data.to_owned());
                             }
                         }
                     }
-                    for body in data.values() {
-                        println!("{:?}", body);
-                    }
+                } else {
+                    break;
                 }
-                Err(_) => panic!("failed"),
+                buf = one.0;
+            }
+            Err(_) => {
+                println!("done");
+                break;
             }
         }
-        Err(err) => panic!("oh no: {:?}", err),
-    }*/
-    // Let's now seek until the start of the coefficients
-    // println!("{:?}", &buffer[101740..101750]);
-    // println!("{}", str::from_utf8(&buffer[101740..101750]).unwrap());
-    // match til_coeffs_parser(&buffer[101740..101750]) {
-    //     Ok(data) => {
-    //         println!("{:?}", str::from_utf8(data.1).unwrap());
-    //     }
-    //     Err(e) => panic!("ugh:\n {:?}", e),
-    // }
+    }
+    for body in data.values() {
+        println!("{:?}", body);
+    }
+    // And now parse the summaries
+    let (rem, summaries) = parse_srbh(&rem[(hdr.first_summary_block as usize)..]).expect("ugh");
+    println!("{:?}", summaries);
 }
