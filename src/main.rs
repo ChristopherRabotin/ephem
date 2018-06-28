@@ -5,6 +5,8 @@ use std::fs::File;
 use std::collections::HashMap;
 use std::str;
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 named!(consume_until_null, take_until_and_consume!("\0"));
 named!(take_hdr, take_until_and_consume!("DAF/SPK"));
 named!(
@@ -16,6 +18,11 @@ named!(seek_bodies, take_until_and_consume!("Bodies included:\0\0"));
 named!(til_next_null, take_until_and_consume!("\0"));
 named!(til_next_open_parens, ws!(take_until_and_consume!("(")));
 named!(til_next_close_parens, ws!(take_until_and_consume!(")")));
+
+named!(
+    til_coeffs,
+    take_until_and_consume!("\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0")
+);
 
 #[derive(Debug, PartialEq)]
 struct SPK<'a> {
@@ -39,6 +46,14 @@ named!(parse_each_gm<&[u8], &[u8]>,
         many0!(tag!("Sun/GM(I)")) >>
         take_until_and_consume!("GM") >>
         fullline: til_next_null >>
+        (fullline)
+    )
+);
+
+named!(til_coeffs_parser<&[u8], &[u8]>,
+    do_parse!(
+        many0!(tag!("\0")) >>
+        fullline: take!(10) >>
         (fullline)
     )
 );
@@ -70,6 +85,11 @@ named!(parse_meta<&[u8],SPK>,
 );
 
 fn main() {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(n) => println!("1970-01-01 00:00:00 UTC was {} seconds ago!", n.as_secs()),
+        Err(_) => panic!("SystemTime before UNIX EPOCH!"),
+    }
+
     // let mut f = File::open("../nyx/data/de436s.bsp").expect("open");
     let mut f = File::open("./data/de436.bsp").expect("open");
     let mut buffer = vec![0; 0];
@@ -191,4 +211,13 @@ fn main() {
         }
         Err(err) => panic!("oh no: {:?}", err),
     }
+    // Let's now seek until the start of the coefficients
+    // println!("{:?}", &buffer[101740..101750]);
+    // println!("{}", str::from_utf8(&buffer[101740..101750]).unwrap());
+    // match til_coeffs_parser(&buffer[101740..101750]) {
+    //     Ok(data) => {
+    //         println!("{:?}", str::from_utf8(data.1).unwrap());
+    //     }
+    //     Err(e) => panic!("ugh:\n {:?}", e),
+    // }
 }
