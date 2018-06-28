@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate nom;
+use nom::le_u32;
 use std::collections::HashMap;
 use std::fs::File;
-use std::i32;
 use std::io::prelude::*;
 use std::str;
 
@@ -24,26 +24,19 @@ named!(
 );
 
 #[derive(Debug, PartialEq)]
-struct FileRecord {
+struct Header {
     file_architecture: String, //[8], // LOCIDW
-    n_double_precision: i32,   // ND
-    n_integers: i32,           // NI
+    n_double_precision: u32,   // ND
+    n_integers: u32,           // NI
     internal_name: String,     //[60],    // LOCIFN
-    first_summary_block: i32,  // FWARD
-    last_summary_block: i32,   // BWARD
-    first_free_address: i32,   // FREE
+    first_summary_block: u32,  // FWARD
+    last_summary_block: u32,   // BWARD
+    first_free_address: u32,   // FREE
     numeric_format: String,    //[8];    // LOCFMT
-    zeros_1: String,           //[603];         // PRENUL
-    integrity_string: String,  //[28]; // FTPSTR
-    zeros_2: String,           //[297];         // PSTNUL
+    // zeros_1: String,           //[603];         // PRENUL
+    integrity_string: String, //[28]; // FTPSTR
+                              // zeros_2: String,           //[297];         // PSTNUL
 }
-
-named!(takei32<&[u8],u32>,
-  do_parse!(
-    stuff: take!(4) >>
-    (stuff.iter().rev().fold(0, |acc, &b| acc*2 + b as u32))
-  )
-);
 
 named!(take8char<&[u8] ,String>,
     do_parse!(
@@ -51,7 +44,49 @@ named!(take8char<&[u8] ,String>,
         (str::from_utf8(stuff).unwrap().trim().to_owned())
     )
 );
-// .iter().rev().fold(0, |acc, &b| acc*2 + b as u32)
+
+named!(take_locifn<&[u8] ,String>,
+    do_parse!(
+        stuff: take!(60) >>
+        (str::from_utf8(stuff).unwrap().trim().to_owned())
+    )
+);
+
+named!(take_ftpstr<&[u8] ,String>,
+    do_parse!(
+        stuff: take!(28) >>
+        (str::from_utf8(stuff).unwrap().trim().to_owned())
+    )
+);
+
+named!(parse_full_header<&[u8], Header>,
+  do_parse!(
+    arch: take8char >>
+    nd: le_u32 >>
+    ni: le_u32 >>
+    locifn: take_locifn >>
+    first_sum_blk: le_u32 >>
+    last_sum_blk: le_u32 >>
+    first_free_addr: le_u32 >>
+    locfmt: take8char >>
+    take!(603) >> // Skipping 603 zeros
+    // chksum: take_ftpstr >>
+    take!(28) >>
+    take!(297) >> // Skipping 297 zeros
+    (Header{
+        file_architecture: arch,
+        n_double_precision: nd,
+        n_integers: ni,
+        internal_name: locifn,
+        first_summary_block: first_sum_blk,
+        last_summary_block: last_sum_blk,
+        first_free_address: first_free_addr,
+        numeric_format: locfmt,
+        integrity_string: "chksum".to_owned(),
+    })
+  )
+);
+
 #[derive(Debug, PartialEq)]
 struct SPK<'a> {
     name: &'a str,
@@ -117,9 +152,8 @@ fn main() {
     let mut f = File::open("./data/de436.bsp").expect("open");
     let mut buffer = vec![0; 0];
     f.read_to_end(&mut buffer).expect("to end");
-    let (mut rem, arch) = take8char(&buffer).expect("could not read architecture");
-    let (mut rem, ni) = takei32(&rem).expect("could not read NI");
-    println!("{} {}", arch, ni);
+    let (mut rem, hdr) = parse_full_header(&buffer).expect("could not read header");
+    println!("{:?}", hdr);
 
     /*match parse_meta(&buffer) {
         Ok(spk_info) => {
