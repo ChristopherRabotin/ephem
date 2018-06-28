@@ -1,11 +1,10 @@
 #[macro_use]
 extern crate nom;
-use std::io::prelude::*;
-use std::fs::File;
 use std::collections::HashMap;
+use std::fs::File;
+use std::i32;
+use std::io::prelude::*;
 use std::str;
-
-use std::time::{SystemTime, UNIX_EPOCH};
 
 named!(consume_until_null, take_until_and_consume!("\0"));
 named!(take_hdr, take_until_and_consume!("DAF/SPK"));
@@ -24,6 +23,35 @@ named!(
     take_until_and_consume!("\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0")
 );
 
+#[derive(Debug, PartialEq)]
+struct FileRecord {
+    file_architecture: String, //[8], // LOCIDW
+    n_double_precision: i32,   // ND
+    n_integers: i32,           // NI
+    internal_name: String,     //[60],    // LOCIFN
+    first_summary_block: i32,  // FWARD
+    last_summary_block: i32,   // BWARD
+    first_free_address: i32,   // FREE
+    numeric_format: String,    //[8];    // LOCFMT
+    zeros_1: String,           //[603];         // PRENUL
+    integrity_string: String,  //[28]; // FTPSTR
+    zeros_2: String,           //[297];         // PSTNUL
+}
+
+named!(takei32<&[u8],u32>,
+  do_parse!(
+    stuff: take!(4) >>
+    (stuff.iter().rev().fold(0, |acc, &b| acc*2 + b as u32))
+  )
+);
+
+named!(take8char<&[u8] ,String>,
+    do_parse!(
+        stuff: take!(8) >>
+        (str::from_utf8(stuff).unwrap().trim().to_owned())
+    )
+);
+// .iter().rev().fold(0, |acc, &b| acc*2 + b as u32)
 #[derive(Debug, PartialEq)]
 struct SPK<'a> {
     name: &'a str,
@@ -85,18 +113,15 @@ named!(parse_meta<&[u8],SPK>,
 );
 
 fn main() {
-    match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(n) => println!("1970-01-01 00:00:00 UTC was {} seconds ago!", n.as_secs()),
-        Err(_) => panic!("SystemTime before UNIX EPOCH!"),
-    }
-
     // let mut f = File::open("../nyx/data/de436s.bsp").expect("open");
     let mut f = File::open("./data/de436.bsp").expect("open");
     let mut buffer = vec![0; 0];
     f.read_to_end(&mut buffer).expect("to end");
-    let mut data: HashMap<i16, Body>;
-    data = HashMap::new();
-    match parse_meta(&buffer) {
+    let (mut rem, arch) = take8char(&buffer).expect("could not read architecture");
+    let (mut rem, ni) = takei32(&rem).expect("could not read NI");
+    println!("{} {}", arch, ni);
+
+    /*match parse_meta(&buffer) {
         Ok(spk_info) => {
             println!("{:?}", spk_info.1);
             match parse_all_body_hdr(spk_info.0) {
@@ -130,7 +155,8 @@ fn main() {
                                             // math. So far, I have only seen those rows break.
                                             if p_id == "M" || p_id == "B" {
                                                 mu = sun_mu
-                                                    / (item.replace("D", "E")
+                                                    / (item
+                                                        .replace("D", "E")
                                                         .parse::<f64>()
                                                         .unwrap());
                                             }
@@ -210,7 +236,7 @@ fn main() {
             }
         }
         Err(err) => panic!("oh no: {:?}", err),
-    }
+    }*/
     // Let's now seek until the start of the coefficients
     // println!("{:?}", &buffer[101740..101750]);
     // println!("{}", str::from_utf8(&buffer[101740..101750]).unwrap());
