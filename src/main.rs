@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate nom;
-use nom::{le_f32, le_i32, le_u32};
+use nom::{le_f32, le_u32, le_u64};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -67,8 +67,8 @@ struct Header {
     n_double_precision: u32,   // ND
     n_integers: u32,           // NI
     internal_name: String,     // LOCIFN [60]
-    first_summary_block: i32,  // FWARD
-    last_summary_block: i32,   // BWARD
+    first_summary_block: u32,  // FWARD
+    last_summary_block: u32,   // BWARD
     first_free_address: u32,   // FREE
     numeric_format: String,    // LOCFMT [8]
     integrity_string: String,  // FTPSTR [28]
@@ -80,8 +80,8 @@ named!(parse_header<&[u8], Header>,
     nd: le_u32 >>
     ni: le_u32 >>
     locifn: take_locifn >>
-    first_sum_blk: le_i32 >>
-    last_sum_blk: le_i32 >>
+    first_sum_blk: le_u32 >>
+    last_sum_blk: le_u32 >>
     first_free_addr: le_u32 >>
     locfmt: take8char >>
     take!(603) >> // Skipping 603 zeros
@@ -108,17 +108,17 @@ named!(parse_header<&[u8], Header>,
 // integers but they are stored as doubles
 #[derive(Debug)]
 struct SummaryRecordBlockHeader {
-    next_summary_record_blk: f32, // pointer to next SR 1Kb block (1 indexed)
-    prev_summary_record_blk: f32, // pointer to previous SR block (1 indexed)
-    n_summaries: f32,             // number of element summaries here
+    next_summary_record_blk: u32, // pointer to next SR 1Kb block (1 indexed)
+    prev_summary_record_blk: u32, // pointer to previous SR block (1 indexed)
+    n_summaries: u32,             // number of element summaries here
 }
 
 // Parse summary record block header
 named!(parse_srbh<&[u8], SummaryRecordBlockHeader>,
   do_parse!(
-    next_summary_record_blk: le_f32 >>
-    prev_summary_record_blk: le_f32 >>
-    n_summaries: le_f32 >>
+    next_summary_record_blk: le_u32 >>
+    prev_summary_record_blk: le_u32 >>
+    n_summaries: le_u32 >>
     (SummaryRecordBlockHeader{
         next_summary_record_blk,
         prev_summary_record_blk,
@@ -142,6 +142,10 @@ struct Body {
 
 named!(seek_to_gms<&[u8], &[u8]>,
     take_until_and_consume!("Sun/GM(I)")
+);
+
+named!(seek_to_end_of_comment<&[u8], &[u8]>,
+    take_until_and_consume!("\04")
 );
 
 named!(parse_each_gm<&[u8], &[u8]>,
@@ -188,8 +192,10 @@ named!(parse_meta<&[u8],SPK>,
 );
 
 fn main() {
-    let mut f = File::open("./data/de436s.bsp").expect("open");
-    // let mut f = File::open("./data/de436.bsp").expect("open");
+    let block_size: usize = 1024;
+    // let mut f = File::open("./data/de421.bsp").expect("open"); // This fails to read the comments with the GMs
+    // let mut f = File::open("./data/de436s.bsp").expect("open");
+    let mut f = File::open("./data/de436.bsp").expect("open");
     let mut mutbuf = vec![0; 0];
     f.read_to_end(&mut mutbuf).expect("to end");
     let buffer = mutbuf.clone();
@@ -296,7 +302,10 @@ fn main() {
     for body in data.values() {
         println!("{:?}", body);
     }
+    // Seek until the end of the comment so that we skip all the asteroids.
+    let rem = seek_to_end_of_comment(rem).unwrap().0;
     // And now parse the summaries
-    let (rem, summaries) = parse_srbh(&buffer[(hdr.first_summary_block as usize)..]).expect("ugh");
+    let (rem, summaries) =
+        parse_srbh(&rem[(hdr.first_summary_block as usize - 1) * block_size..]).expect("ugh");
     println!("{:?}", summaries);
 }
