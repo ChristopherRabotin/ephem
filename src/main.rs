@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate nom;
-use nom::{le_f32, le_u32};
+use nom::{le_f32, le_i32, le_u32};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -17,11 +17,6 @@ named!(seek_bodies, take_until_and_consume!("Bodies included:\0\0"));
 named!(til_next_null, take_until_and_consume!("\0"));
 named!(til_next_open_parens, ws!(take_until_and_consume!("(")));
 named!(til_next_close_parens, ws!(take_until_and_consume!(")")));
-
-named!(
-    til_coeffs,
-    take_until_and_consume!("\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0")
-);
 
 // Each summary has a fixed form, reflected here
 struct Summary {
@@ -72,8 +67,8 @@ struct Header {
     n_double_precision: u32,   // ND
     n_integers: u32,           // NI
     internal_name: String,     // LOCIFN [60]
-    first_summary_block: u32,  // FWARD
-    last_summary_block: u32,   // BWARD
+    first_summary_block: i32,  // FWARD
+    last_summary_block: i32,   // BWARD
     first_free_address: u32,   // FREE
     numeric_format: String,    // LOCFMT [8]
     integrity_string: String,  // FTPSTR [28]
@@ -85,8 +80,8 @@ named!(parse_header<&[u8], Header>,
     nd: le_u32 >>
     ni: le_u32 >>
     locifn: take_locifn >>
-    first_sum_blk: le_u32 >>
-    last_sum_blk: le_u32 >>
+    first_sum_blk: le_i32 >>
+    last_sum_blk: le_i32 >>
     first_free_addr: le_u32 >>
     locfmt: take8char >>
     take!(603) >> // Skipping 603 zeros
@@ -195,8 +190,9 @@ named!(parse_meta<&[u8],SPK>,
 fn main() {
     let mut f = File::open("./data/de436s.bsp").expect("open");
     // let mut f = File::open("./data/de436.bsp").expect("open");
-    let mut buffer = vec![0; 0];
-    f.read_to_end(&mut buffer).expect("to end");
+    let mut mutbuf = vec![0; 0];
+    f.read_to_end(&mut mutbuf).expect("to end");
+    let buffer = mutbuf.clone();
     let (rem, hdr) = parse_header(&buffer).expect("could not read header");
     println!("{:?}", hdr);
     // We've got that header, let's parse the comment to get the list of bodies (this might fail)
@@ -301,6 +297,6 @@ fn main() {
         println!("{:?}", body);
     }
     // And now parse the summaries
-    let (rem, summaries) = parse_srbh(&rem[(hdr.first_summary_block as usize)..]).expect("ugh");
+    let (rem, summaries) = parse_srbh(&buffer[(hdr.first_summary_block as usize)..]).expect("ugh");
     println!("{:?}", summaries);
 }
