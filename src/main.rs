@@ -198,6 +198,7 @@ fn record_positions(block: usize) -> (usize, usize) {
 
 fn main() {
     let summary_length = 2 * 8 + 4 * 6; // 2: NI; 6: ND; 8 = sizeof(double); 6 = sizeof(int);
+    let summary_hdr_size = 3 * 8; // 2: NI; 6: ND; 8 = sizeof(double); 6 = sizeof(int);
     let summaries_per_record = (1024 - 8 * 3) / summary_length;
     let parse_bodies = false;
     let mut f = File::open("./data/de421.bsp").expect("open"); // This fails to read the comments with the GMs
@@ -322,17 +323,22 @@ fn main() {
         // let start_byte = (hdr.first_summary_block as usize - 1) * block_size;
         // let end_byte = start_byte + block_size;
         let (start, end) = record_positions(hdr.first_summary_block as usize);
-        let (rem, summary_hdr) = parse_srbh(&buffer[start..end]).expect("ugh");
+        let (mut rem_summary, summary_hdr) = parse_srbh(&buffer[start..end]).expect("ugh");
         println!("{:?}", summary_hdr);
-        summary_block = summary_hdr.next_summary_record_blk as usize;
-        // Read the record from the summary we just read.
-        let (start, end) = record_positions(hdr.first_summary_block as usize + 1);
-        let name = str::from_utf8(&buffer[start..start + 40])
-            .expect("could not decode the name of this summary")
-            .trim();
-        println!("{:?}", name);
-        let (rem2, summary) = parse_summary(rem).expect("ugh");
-        println!("{:?}", summary);
+        let (start_name, end_name) = record_positions(hdr.first_summary_block as usize + 1);
+        let name_buffer = &buffer[start_name..end_name];
+        for sno in 0..summary_hdr.n_summaries as u64 {
+            summary_block = summary_hdr.next_summary_record_blk as usize;
+            // Read the record from the summary we just read.
+            let usno = sno as usize;
+            let name = str::from_utf8(&name_buffer[40 * usno..(usno + 1) * 40])
+                .expect("could not decode the name of this summary")
+                .trim();
+            println!("{:?}", name);
+            let (next_rem_summary, summary) = parse_summary(rem_summary).expect("ugh");
+            println!("{:?} => {}", summary, next_rem_summary.len());
+            rem_summary = next_rem_summary;
+        }
         /*
         name_data = self.read_record(record_number + 1)
         for i in range(0, int(n_summaries) * step, step):
