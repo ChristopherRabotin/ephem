@@ -190,8 +190,13 @@ named!(parse_body_hdr<&[u8], Body>,
   )
 );
 
-fn main() {
+fn record_positions(block: usize) -> (usize, usize) {
     let block_size: usize = 1024;
+    let start_byte = (block as usize - 1) * block_size;
+    (start_byte, start_byte + block_size)
+}
+
+fn main() {
     let summary_length = 2 * 8 + 4 * 6; // 2: NI; 6: ND; 8 = sizeof(double); 6 = sizeof(int);
     let summaries_per_record = (1024 - 8 * 3) / summary_length;
     let parse_bodies = false;
@@ -311,14 +316,37 @@ fn main() {
     // Seek until the end of the comment so that we skip all the asteroids.
     let rem = seek_to_end_of_comment(rem).unwrap().0;
     // And now parse the summaries
-    let start_byte = (hdr.first_summary_block as usize - 1) * block_size;
-    let end_byte = start_byte + block_size;
-    println!("{} -> {}", start_byte, end_byte,);
-    let (rem, summary) = parse_srbh(&buffer[start_byte..end_byte]).expect("ugh");
+    let mut summary_block = hdr.first_summary_block as usize - 1;
+    // Read all the summary blocks
+    while summary_block > 0 {
+        // let start_byte = (hdr.first_summary_block as usize - 1) * block_size;
+        // let end_byte = start_byte + block_size;
+        let (start, end) = record_positions(hdr.first_summary_block as usize);
+        let (rem, summary_hdr) = parse_srbh(&buffer[start..end]).expect("ugh");
+        println!("{:?}", summary_hdr);
+        summary_block = summary_hdr.next_summary_record_blk as usize;
+        // Read the record from the summary we just read.
+        let (start, end) = record_positions(hdr.first_summary_block as usize + 1);
+        let name = str::from_utf8(&buffer[start..start + 40])
+            .expect("could not decode the name of this summary")
+            .trim();
+        println!("{:?}", name);
+        let (rem2, summary) = parse_summary(rem).expect("ugh");
+        println!("{:?}", summary);
+        /*
+        name_data = self.read_record(record_number + 1)
+        for i in range(0, int(n_summaries) * step, step):
+            j = self.summary_control_struct.size + i
+            name = name_data[i:i+step].strip()
+            data = summary_data[j:j+length]
+            values = self.summary_struct.unpack(data)
+            yield name, values
+            */
+    }
+    println!("done with summaries",);
     // println!("{:?}", blk0);
     // TODO: Start at (foward record  -1 ) * 1024 and read 1024 bytes, but from the beginning of the file (f.seek)
     // let (rem, summaries) = parse_srbh(&rem).expect("ugh");
     // println!("{:?}", summaries);
     // let (rem, summary) = parse_summary(rem).expect("ugh");
-    println!("{:?}", summary);
 }
