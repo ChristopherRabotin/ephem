@@ -168,14 +168,6 @@ named!(parse_each_gm<&[u8], &[u8]>,
     )
 );
 
-named!(til_coeffs_parser<&[u8], &[u8]>,
-    do_parse!(
-        many0!(tag!("\0")) >>
-        fullline: take!(10) >>
-        (fullline)
-    )
-);
-
 named!(parse_all_body_hdr<&[u8],(Vec<Body>, &[u8])>,
     many_till!(parse_body_hdr, tag!("\0\0"))
 );
@@ -188,6 +180,13 @@ named!(parse_body_hdr<&[u8], Body>,
     (Body{gm: -1.0, name: str::from_utf8(name).unwrap().trim().to_owned(),
         naif_id: str::from_utf8(naif_id).unwrap().parse::<i16>().unwrap()})
   )
+);
+
+named!(get_next_float<&[u8], f64>,
+    do_parse!(
+        val: le_f64 >>
+        (val)
+    )
 );
 
 fn record_positions(block: usize) -> (usize, usize) {
@@ -319,6 +318,7 @@ fn main() {
     // And now parse the summaries
     let mut summary_block = hdr.first_summary_block as usize - 1;
     // Read all the summary blocks
+    let mut all_summaries = Vec::with_capacity(15);
     while summary_block > 0 {
         // let start_byte = (hdr.first_summary_block as usize - 1) * block_size;
         // let end_byte = start_byte + block_size;
@@ -338,21 +338,21 @@ fn main() {
             let (next_rem_summary, summary) = parse_summary(rem_summary).expect("ugh");
             println!("{:?} => {}", summary, next_rem_summary.len());
             rem_summary = next_rem_summary;
+            all_summaries.push(summary);
         }
-        /*
-        name_data = self.read_record(record_number + 1)
-        for i in range(0, int(n_summaries) * step, step):
-            j = self.summary_control_struct.size + i
-            name = name_data[i:i+step].strip()
-            data = summary_data[j:j+length]
-            values = self.summary_struct.unpack(data)
-            yield name, values
-            */
     }
-    println!("done with summaries",);
-    // println!("{:?}", blk0);
-    // TODO: Start at (foward record  -1 ) * 1024 and read 1024 bytes, but from the beginning of the file (f.seek)
-    // let (rem, summaries) = parse_srbh(&rem).expect("ugh");
-    // println!("{:?}", summaries);
-    // let (rem, summary) = parse_summary(rem).expect("ugh");
+    println!("done with summaries ({})", all_summaries.len());
+    // Read the first summary entry
+    let (start_name, end_name) = record_positions(all_summaries[14].end_i as usize - 1);
+    let mut array_buffer = &buffer[start_name..end_name];
+    // Read through the whole array
+    loop {
+        let (rem_array, val) = get_next_float(array_buffer).expect("mm");
+        println!("{:?}", val);
+        if rem_array.len() == 0 {
+            println!("done");
+            break;
+        }
+        array_buffer = rem_array;
+    }
 }
